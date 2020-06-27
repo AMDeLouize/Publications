@@ -1,0 +1,319 @@
+---
+title: "Anemia and Hb in Shuar"
+author: "Alicia DeLouize"
+date: "November 16, 2019"
+output:
+  word_document: default
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Data
+```{r}
+set.seed(2323)
+
+# Load packages 
+library(readxl)
+library(psych)
+library(lme4)
+library(tidyverse)
+library(jtools)
+library(scales)
+library(reshape2)
+library(ggpubr)
+library(performance)
+library(moments)
+library(mgcv)
+
+# attach data
+Hb_all<- read_excel("Hb_key.xlsx")
+
+# Selecting Shuar Participants
+Hb <- subset(Hb_all, Shuar == 2)
+Hb_Comparison <- subset(Hb_all, Shuar == 1)
+
+```
+
+# Data cleaning - QA/QC
+```{r}
+#Checking Data
+View(Hb)
+summary(Hb)
+
+# Collapsing region into two groups (cross-cutucu and upano valley)
+table(Hb$Region, Hb$Community)
+
+Hb$Region[Hb$Community == "Asuncion"] <- 0
+Hb$Region[Hb$Community == "Cusuimi"] <- 0
+Hb$Region[Hb$Community == "Domingo"] <- 0
+Hb$Region[Hb$Community == 'El Pangui'] <- 0
+Hb$Region[Hb$Community == "Huambi"] <- 0
+Hb$Region[Hb$Community == "Logrono"] <- 0
+Hb$Region[Hb$Community == "Macas"] <- 0
+Hb$Region[Hb$Community == "Nuevos Orizonte"] <- 0
+Hb$Region[Hb$Community == "Pangui"] <- 0
+Hb$Region[Hb$Community == "Saipa"] <- 0
+Hb$Region[Hb$Community == "San Pablo"] <- 0
+Hb$Region[Hb$Community == "Santa Rosa"] <- 0
+Hb$Region[Hb$Community == "Domingo"] <- 0
+Hb$Region[Hb$Community == "Seipa"] <- 0
+Hb$Region[Hb$Community == "Sucua"] <- 0
+Hb$Region[Hb$Community == "Tesoro"] <- 0
+
+
+Hb$Region[Hb$Community == "Santiago"] <- 1
+Hb$Region[Hb$Community == "Tiwinza"] <- 1
+
+# Renaming misspelled communities 
+Hb$Community[Hb$Community == "Ascuncion"] <- "Asuncion"
+Hb$Community[Hb$Community == "Saipa"] <- "Seipa"
+Hb$Community[Hb$Community == "Comuna Grande/Wachmas"] <- "Comuna Grande"
+Hb$Community[Hb$Community == "Yamanunca"] <- "Yamanunka"
+Hb$Community[Hb$Community == "Wachmas (Barrio Israel)"] <- "Wachmas"
+```
+
+# Data Manipulation - Create Anemia Groups
+```{r}
+Hb$AnemiaGroups <- Hb$AgeGroups
+Hb$AnemiaGroups[which(Hb$AnemiaGroups == 3 & Hb$Sex == 0)] <- 5
+Hb$AnemiaGroups[which(Hb$AnemiaGroups == 3 & Hb$Sex == 1 & Hb$Pregnant == 0)] <- 3
+Hb$AnemiaGroups[which(Hb$AnemiaGroups == 3 & Hb$Sex == 1 & Hb$Pregnant == 1)] <- 4
+describe(Hb$AnemiaGroups)
+describe(Hb$AgeGroups)
+```
+
+# Data Manipulation - Create Anemia 
+```{r}
+Hb$Anemia <- 0
+Hb$Anemia <- ifelse(Hb$AnemiaGroups == 0 & Hb$Hb_AltAdj < 11.0, 1, 
+ifelse(Hb$AnemiaGroups == 1 & Hb$Hb_AltAdj < 11.5, 1, 
+ifelse(Hb$AnemiaGroups == 2 & Hb$Hb_AltAdj < 12.0, 1, 
+ifelse(Hb$AnemiaGroups == 3 & Hb$Hb_AltAdj < 12.0, 1, 
+ifelse(Hb$AnemiaGroups == 4 & Hb$Hb_AltAdj < 11.0, 1, 
+ifelse(Hb$AnemiaGroups == 5 & Hb$Hb_AltAdj < 13.0, 1, 0))))))
+
+```
+
+# Data Management - Anemia Mild Moderate Severe  
+```{r}
+# Creating Mild Category
+Hb$AnemiaMild <- 0
+Hb$AnemiaMild <- ifelse(Hb$AnemiaGroups == 0 & Hb$Hb_AltAdj < 11.0 & Hb$Hb_AltAdj >= 10.00, 1, 
+ifelse(Hb$AnemiaGroups == 1 & Hb$Hb_AltAdj < 11.5 & Hb$Hb_AltAdj >= 11.00, 1, 
+ifelse(Hb$AnemiaGroups == 2 & Hb$Hb_AltAdj < 12.0 & Hb$Hb_AltAdj >= 11.00, 1, 
+ifelse(Hb$AnemiaGroups == 3 & Hb$Hb_AltAdj < 12.0 & Hb$Hb_AltAdj >= 11.00, 1, 
+ifelse(Hb$AnemiaGroups == 4 & Hb$Hb_AltAdj < 11.0 & Hb$Hb_AltAdj >= 10.00, 1, 
+ifelse(Hb$AnemiaGroups == 5 & Hb$Hb_AltAdj < 13.0 & Hb$Hb_AltAdj >= 11.00, 1, 0))))))
+
+# Creating Moderate Category
+Hb$AnemiaModerate <- 0
+Hb$AnemiaModerate <- ifelse(Hb$AnemiaGroups == 0 & Hb$Hb_AltAdj < 10.0 & Hb$Hb_AltAdj >= 7.00, 1, 
+ifelse(Hb$AnemiaGroups == 1 & Hb$Hb_AltAdj < 11.0 & Hb$Hb_AltAdj >= 8.00, 1, 
+ifelse(Hb$AnemiaGroups == 2 & Hb$Hb_AltAdj < 11.0 & Hb$Hb_AltAdj >= 8.00, 1, 
+ifelse(Hb$AnemiaGroups == 3 & Hb$Hb_AltAdj < 11.0 & Hb$Hb_AltAdj >= 8.00, 1, 
+ifelse(Hb$AnemiaGroups == 4 & Hb$Hb_AltAdj < 10.0 & Hb$Hb_AltAdj >= 7.00, 1, 
+ifelse(Hb$AnemiaGroups == 5 & Hb$Hb_AltAdj < 11.0 & Hb$Hb_AltAdj >= 8.00, 1, 0))))))
+
+# Creating Severe Category
+Hb$AnemiaSevere <- 0
+Hb$AnemiaSevere <- ifelse(Hb$AnemiaGroups == 0 & Hb$Hb_AltAdj < 7.0, 1, 
+ifelse(Hb$AnemiaGroups == 1 & Hb$Hb_AltAdj < 8.0, 1, 
+ifelse(Hb$AnemiaGroups == 2 & Hb$Hb_AltAdj < 8.0, 1, 
+ifelse(Hb$AnemiaGroups == 3 & Hb$Hb_AltAdj < 8.0, 1, 
+ifelse(Hb$AnemiaGroups == 4 & Hb$Hb_AltAdj < 7.0, 1, 
+ifelse(Hb$AnemiaGroups == 5 & Hb$Hb_AltAdj < 8.0, 1, 0))))))
+
+```
+
+# Distributions
+```{r}
+table(Hb$Anemia)
+skewness(Hb$Anemia, na.rm = T)
+kurtosis(Hb$Anemia, na.rm = T)
+
+table(Hb$Sex)
+skewness(Hb$Sex)
+kurtosis(Hb$Sex)
+
+describe(Hb$Age)
+skewness(Hb$Age, na.rm = T)
+kurtosis(Hb$Age, na.rm = T)
+hist(Hb$Age)
+
+plot(Hb$Age, Hb$Anemia)
+```
+
+# Participants Section
+```{r}
+table(Hb$Region, Hb$Community)
+min(Hb$Date)
+max(Hb$Date)
+describe(Hb$Age)
+table(Hb$Sex)
+table(Hb$Shuar)
+table(Hb$Region)
+table(Hb$Sex, Hb$Region)
+table(Hb$Pregnant)
+```
+
+# Descriptives Table 1 
+```{r}
+# Overall Anemia rates
+mytable <- table(Hb$Anemia, Hb$AnemiaGroups)
+mytable
+margin.table(mytable, 1)
+prop.table(mytable, 2)
+
+# Mild Anemia rates
+table1 <- table(Hb$AnemiaMild, Hb$AnemiaGroups)
+table1
+margin.table(table1, 1)
+prop.table(table1, 2)
+
+# Moderate Anemia Rates 
+table2 <- table(Hb$AnemiaModerate, Hb$AnemiaGroups)
+table2
+margin.table(table2, 1)
+prop.table(table2, 2)
+
+# Severe Anemis Rates
+table3 <- table(Hb$AnemiaSevere, Hb$AnemiaGroups)
+table3
+margin.table(table3, 1)
+prop.table(table3, 2)
+
+# Mean Hb by group
+describe.by(Hb$Hb_AltAdj, group = Hb$AnemiaGroups)
+```
+
+# Descriptives Table 2 
+```{r}
+mean(Hb$Hb_AltAdj[which(Hb$AnemiaMild == 1)])
+mean(Hb$Hb_AltAdj[which(Hb$AnemiaModerate == 1)])
+mean(Hb$Hb_AltAdj[which(Hb$AnemiaSevere == 1)])
+
+Hb$Children <- ifelse(Hb$AnemiaGroups == 0 | Hb$AnemiaGroups == 1 | Hb$AnemiaGroups == 2, 1, 0)
+Hb$Women <- ifelse(Hb$AnemiaGroups == 3 | Hb$AnemiaGroups == 4, 1, 0)
+Hb$Men <- ifelse(Hb$AnemiaGroups == 5, 1, 0)
+
+mean(Hb$Hb_AltAdj[which(Hb$Children == 1 & Hb$Region == 1)], na.rm=TRUE)
+mean(Hb$Hb_AltAdj[which(Hb$Children == 1 & Hb$Region == 0)], na.rm=TRUE)
+mean(Hb$Hb_AltAdj[which(Hb$Women == 1 & Hb$Region == 1)], na.rm=TRUE)
+mean(Hb$Hb_AltAdj[which(Hb$Women == 1 & Hb$Region == 0)], na.rm=TRUE)
+mean(Hb$Hb_AltAdj[which(Hb$AnemiaGroups == 5 & Hb$Region == 1)], na.rm=TRUE)
+mean(Hb$Hb_AltAdj[which(Hb$AnemiaGroups == 5 & Hb$Region == 0)], na.rm=TRUE)
+
+table(Hb$Anemia, Hb$Children, Hb$Region )
+table(Hb$Anemia, Hb$Women, Hb$Region)
+table(Hb$Anemia, Hb$Men, Hb$Region)
+table(Hb$Anemia, Hb$AnemiaGroups, Hb$Region)
+
+table(Hb$Anemia, Hb$Children)
+table(Hb$Anemia, Hb$Children, Hb$Sex)
+table(Hb$Anemia, Hb$Women)
+table(Hb$Anemia, Hb$Men)
+table(Hb$Anemia, Hb$AnemiaGroups)
+```
+
+
+
+# Inferentials: Linear
+
+```{r}
+# Preparing data 
+Hb$Anemia <- factor(Hb$Anemia)
+Hb_glmer  <- filter(Hb, !is.na(Age), !is.na(Sex), !is.na(Community), !is.na(Anemia), !is.na(Year)) 
+Hb_glmer$Community <- factor(Hb_glmer$Community)
+
+# Controlling for community and year
+## Check to make sure there are enough groups
+unique(Hb$Community)
+unique(Hb$Year)
+
+## Anemia and sex
+
+## Adults 15+ 
+logit_sex_1  <- glmer(formula = Anemia ~ Sex + Pregnant + (1|Community) + (1|Year), data = Hb_glmer, family = "binomial", subset = AgeGroups == 3)
+summary(logit_sex_1)
+plot(logit_sex_1)
+qqnorm(resid(logit_sex_1))
+qqline(resid(logit_sex_1))
+icc(logit_sex_1)
+plogis(0.8047)
+
+## Children Combined
+logit_sex_2  <- glmer(formula = Anemia ~ Sex + (1|Community) + (1|Year), data = Hb_glmer, family = "binomial", subset = AgeGroups != 3)
+summary(logit_sex_2)
+plot(logit_sex_2)
+qqnorm(resid(logit_sex_2))
+qqline(resid(logit_sex_2))
+icc(logit_sex_2)
+plogis(-0.4863)
+
+```
+
+# Inferentials: GAM
+```{r}
+# Data prep for GAM
+Hb_gam <- as.data.frame(Hb_glmer)
+Hb_gam$Community <- as.numeric(factor(Hb_gam$Community))
+Hb_gam <- filter(Hb_gam, !is.na(Age), !is.na(Sex), !is.na(Community), !is.na(Anemia), !is.na(Year))
+
+# GAM Model
+gam_age <- gam(Anemia ~ s(Age) + Year + Community + Sex + Pregnant, data = Hb_gam, family = binomial, method = "REML", na.action = na.omit)
+
+## Model Results
+summary(gam_age)
+
+## Assumptions checks
+gam.check(gam_age)
+concurvity(gam_age)
+
+# Plot log odds
+plot(gam_age, seWithMean = T, shade = T, residuals = T, select = 1, rug = FALSE)
+
+
+# PLOT
+  # Create new datatable from model
+testdata = data.frame(Age=Hb_gam$Age, Year=mean(gam_age$model$Year), Community=mean(gam_age$model$Community), Sex=mean(gam_age$model$Sex), Pregnant=mean(gam_age$model$Pregnant)) 
+
+# Predict to get fit values and se
+p<-predict(gam_age,se.fit=TRUE,newdata=testdata)
+
+# Basic plot of fit
+plot(Hb_gam$Age, p$fit)
+
+# Add original data to fit values
+p2 <- do.call("cbind", c(testdata, p))
+p2 <- data.frame(p2)
+
+# Transform from log using exp
+p3 <- mutate(p2, exp_fit = exp(fit), exp_se = exp(se.fit), lower = exp_fit-exp_se, upper = exp_fit+exp_se)
+
+# Plot
+ggplot(p3, aes(Age, exp_fit)) +
+  geom_line() +
+  scale_x_continuous(breaks = c(0, 10, 20, 30, 40, 50, 60, 70, 80)) +
+  labs(y = 'Anemia Odds Ratio', x = "Age") +
+  theme_apa()
+
+# Finding Inflection points
+p4 <- p3[order(p3$Age), ]
+infl <- c(FALSE, diff(diff(p4$fit)>0)!=0)
+infl2 <- c(FALSE, infl)
+infl3 <- cbind(p4, infl2)
+infl4 <- filter(infl3, infl2 == TRUE)
+
+infl2 <- c(FALSE, diff(diff(p4$fit)<0)!=0)
+infl2_2 <- c(FALSE, infl2)
+infl2_3 <- cbind(p4, infl2_2)
+infl2_4 <- filter(infl2_3, infl2_2 == TRUE)
+```
+
+
+
+
