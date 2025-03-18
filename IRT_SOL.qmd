@@ -1,0 +1,375 @@
+---
+title: "IRT-SOL"
+format: html
+editor: visual
+output:
+  html_document:
+    df_print: kable
+---
+
+## IRT Creation of SOL Variables
+
+### Setup
+
+#### Attach Packages
+
+```{r}
+library(haven)
+library(tidyverse)
+library(mirt)
+library(psych)
+#devtools::install_github("masurp/ggmirt")
+library(ggmirt)
+library(pals)
+library(WrightMap)
+library(knitr)
+library(lsr)
+```
+
+#### Attach Data
+
+```{r}
+#KHM_df_hh <- read_stata("WHS+KHMHHData.dta")
+#write.csv(KHM_df_hh, "WHS+KHMHH.csv")
+hh <- read_csv("WHS+KHMHH.csv", na = c("NA", "", " "))
+ind <- read_csv("WHS+KHMIND.csv", na = c("NA", "", " "))
+KHM_df <- ind |>
+  left_join(hh, by = "hhid") |>
+  filter(q1000c == 1 | q1000c == 2)
+```
+
+#### Create Datasets
+
+```{r}
+msol <-KHM_df |>
+  mutate(walls = if_else(q0504 == 1, 1, 0),
+         w1 = replace_na(q0506, 0),
+         water = if_else(q0505 == 1 | q0505 == 2 | w1 == 1 | w1 == 2, 1, 0),
+         across(c(q0503, q0701:q0723a), ~recode(., '1' = 1, '2' = 0, .default = NA_real_)),
+         ) |>
+  rename(floor = q0503,
+         tv = q0701,
+         motorcycle = q0702, 
+         car = q0703, 
+         electricity = q0704, 
+         bicycle = q0705, 
+         microwave = q0706, 
+         hot_water = q0707, 
+         washing_machine = q0708,
+         dishwasher = q0709,
+         refrigerator = q0710, 
+         fixed_phone = q0711, 
+         cellphone = q0712, 
+         VCR_DVD = q0713, 
+         computer = q0714,
+         radio = q0715,
+         internet = q0717, 
+         cooling = q0718,
+         heating = q0719,
+         servants = q0720) |>
+  select(walls, floor, water, tv:radio, internet:servants)
+
+```
+
+```{r}
+
+descriptives <- describe(msol)
+#write.csv(descriptives, "descriptives.csv")
+hist(msol$dishwasher)
+table(msol$dishwasher)
+
+
+            
+```
+
+#### Assumptions
+
+```{r}
+## Check to make sure its a one factor solution 
+
+scree(msol, pc=FALSE)
+fa <- fa(r = msol, 
+         nfactors = 1, 
+         rotate = "varimax")
+fa
+summary(fa)
+
+cor(msol)
+
+msol2 <- msol |>
+  select(walls:refrigerator, cellphone:computer, internet:servants)
+```
+
+```{r}
+ msol2 |>
+  rowwise() |>
+  mutate(total = sum(c_across(walls:servants), na.rm = T)) |>
+  ungroup() |>
+  summarise(none = sum(total == 0), all = sum(total == 21), max = max(total, na.rm = T))
+
+msol1.5 <- msol2|>
+  rowwise() |>
+  mutate(total = sum(c_across(walls:servants), na.rm = T)) |>
+  ungroup() |>
+  mutate(total = na_if(total, 0))
+
+range(msol1.5$total, na.rm = T)
+
+msol1.75 <- msol1.5 |>
+  select(walls:servants)
+```
+
+#### Evaluate models
+
+##### 3PL
+
+```{r}
+fit3PL <- mirt(data = msol1.75, 
+               model = 1,  
+               itemtype = "3PL", 
+               verbose = FALSE,
+               technical = list(NCYCLES = 5000))
+```
+
+##### 2PL
+
+```{r}
+fit2PL <- mirt(data = msol1.75, 
+               model = 1, 
+               itemtype = "2PL", 
+               verbose = FALSE)
+```
+
+##### 1PL
+
+```{r}
+fitRasch <- mirt(msol1.75, 1, itemtype = "Rasch", verbose = F)
+```
+##### Compare
+
+```{r}
+fit3PL
+fit2PL
+fitRasch
+
+M2(fit2PL, na.rm = T) 
+
+anova(fitRasch, fit3PL)
+anova(fitRasch, fit2PL)
+anova(fit2PL, fit3PL)
+```
+
+#### 1PL or Rasch Model
+
+```{r}
+fitRasch
+coef(fitRasch, IRTpars = TRUE, simplify = TRUE)
+M2(fitRasch, na.rm = T)
+itemfit(fitRasch, fit_stats = "infit", na.rm = T)
+```
+
+```{r}
+itemfitPlot(fitRasch)
+tracePlot(fitRasch)
+itemInfoPlot(fitRasch, facet=T, )
+testInfoPlot(fitRasch, adj_factor = 2)
+itemInfoPlot(fitRasch) + scale_color_brewer(palette = "Set3")
+#ggsave("TestInfoPlot.png")
+tracePlot(fitRasch, theta_range = c(-10,10), facet = F, legend = F) + 
+  scale_colour_manual(values=unname(polychrome()))+
+  labs(title = "1PL - Traceplot")
+```
+
+```{r}
+personfit(fitRasch) %>%
+  summarize(infit.outside = prop.table(table(z.infit > 1.96 | z.infit < -1.96)),
+            outfit.outside = prop.table(table(z.outfit > 1.96 | z.outfit < -1.96))) # lower row = non-f
+```
+```{r}
+MSOL_R1 <- fscores(fitRasch)
+```
+
+#### Revised Rasch Model
+
+```{r}
+msol3 <- msol1.75 |>
+  select(!c(cooling, microwave, dishwasher))
+
+fitRasch2 <- mirt(msol3, 1, itemtype = "Rasch",  SE = FALSE, verbose = T)
+```
+
+```{r}
+fitRasch2
+coef(fitRasch2, IRTpars = TRUE, simplify = TRUE)
+M2(fitRasch2, na.rm = T)
+itemfit(fitRasch2, fit_stats = "infit", na.rm = T)
+
+```
+
+```{r}
+personfit(fitRasch2) %>%
+  summarize(infit.outside = prop.table(table(z.infit > 1.96 | z.infit < -1.96)),
+            outfit.outside = prop.table(table(z.outfit > 1.96 | z.outfit < -1.96))) # lower row = non-f
+```
+
+```{r}
+itemfitPlot(fitRasch2)
+testInfoPlot(fitRasch2, adj_factor = 2, theta_range = c(-5, 5))
+#ggsave("TestInfoPlot.png")
+
+tracePlot(fitRasch2, theta_range = c(-10, 10), facet = F, legend = T) + 
+  scale_colour_manual(values=unname(polychrome()))+
+  labs(title = "1PL - Traceplot")
+```
+
+```{r}
+itempersonmap <- itempersonMap(fitRasch2)
+#ggsave("itempersonmap.png")
+#?itempersonMap
+
+MSOL_R2 <- fscores(fitRasch2)
+```
+
+```{r}
+#WrightMap(fitRasch2)
+#wrightMap(msol2)
+```
+
+#### 3PL Model
+
+```{r}
+fit3PL 
+
+M2(fit3PL, na.rm = T) 
+itemfit(fit3PL, SE = T, na.rm = T) |>
+  kable()
+itemfitPlot(fit3PL) 
+
+coef(fit3PL, IRTpars = TRUE, simplify = TRUE)  |>
+  kable() 
+summary(fit3PL) |>
+  kable()
+```
+
+```{r}
+
+tracePlot(fit3PL)
+
+itemInfoPlot(fit3PL, facet=T)
+testInfoPlot(fit3PL, adj_factor = 2)
+itemInfoPlot(fit3PL) + scale_color_brewer(palette = "Set3")
+
+#ggsave("TestInfoPlot.png")
+tracePlot(fit3PL, theta_range = c(-5, 5), facet = F, legend = T) + 
+  scale_colour_manual(values=unname(polychrome()))+
+  labs(title = "1PL - Traceplot")
+
+scaleCharPlot(fit3PL)
+```
+
+```{r}
+personfit(fit3PL) %>%
+  summarize(infit.outside = prop.table(table(z.infit > 1.96 | z.infit < -1.96)),
+            outfit.outside = prop.table(table(z.outfit > 1.96 | z.outfit < -1.96))) # lower row = non-f
+personfitPlot(fit3PL)
+```
+
+```{r}
+itempersonMap(fit3PL)
+
+MSOL_3PM1 <- fscores(fit3PL)
+```
+
+#### Final model
+
+```{r}
+msol3 <- msol1.75 |>
+  select(!c(bicycle))
+
+fit3PL2 <- mirt(msol3, 1, itemtype = "3PL", verbose = T)
+```
+
+```{r}
+fit3PL2
+coef(fit3PL2, IRTpars = TRUE, simplify = TRUE) |>
+  kable()
+summary(fit3PL2) |>
+  kable()
+M2(fit3PL2, na.rm = T)
+itemfit(fit3PL2, fit_stats = "infit", na.rm = T)
+
+```
+
+```{r}
+personfit(fit3PL2) %>%
+  summarize(infit.outside = prop.table(table(z.infit > 1.96 | z.infit < -1.96)),
+            outfit.outside = prop.table(table(z.outfit > 1.96 | z.outfit < -1.96))) # lower row = non-f
+personfitPlot(fit3PL2)
+
+```
+
+```{r}
+itemfitPlot(fit3PL2)
+testInfoPlot(fit3PL2, adj_factor = 2)
+itemInfoPlot(fit3PL2) + scale_color_brewer(palette = "Set3")
+
+#ggsave("TestInfoPlot.png")
+
+tracePlot(fit3PL2, theta_range = c(-10, 10), facet = F, legend = T) + 
+  scale_colour_manual(values=unname(polychrome()))+
+  labs(title = "1PL - Traceplot")
+```
+
+```{r}
+itempersonmap <- itempersonMap(fit3PL2)
+ggsave("itempersonmap.png")
+
+
+anova(fit3PL, fit3PL2)
+MSOL_3PM2 <- fscores(fit3PL2)
+```
+
+```{r}
+#WrightMap(fitRasch2)
+#wrightMap(msol2)
+```
+
+#### Model Comparisons
+
+```{r}
+KHM_df['MSOL_R1'] = as.numeric(MSOL_R1)
+KHM_df['MSOL_R2'] = MSOL_R2
+KHM_df['MSOL_3PM1'] = MSOL_3PM1
+KHM_df['MSOL_3PM2'] = MSOL_3PM2
+KHM_df['total']= as.numeric(msol1.5$total)
+
+```
+
+```{r}
+m1 <- t.test(MSOL_R1 ~ q0104, KHM_df)
+m2 <- t.test(MSOL_R2 ~ q0104, KHM_df)
+m3 <- t.test(MSOL_3PM1 ~ q0104, KHM_df)
+m4 <- t.test(MSOL_3PM2 ~ q0104, KHM_df)
+
+cohensD(MSOL_R1 ~ q0104, KHM_df)
+cohensD(MSOL_R2 ~ q0104, KHM_df)
+cohensD(MSOL_3PM1 ~ q0104, KHM_df)
+cohensD(MSOL_3PM2 ~ q0104, KHM_df)
+
+cor.test(KHM_df$MSOL_R1, KHM_df$q0104)
+cor.test(KHM_df$MSOL_R2, KHM_df$q0104)
+cor.test(KHM_df$MSOL_3PM1, KHM_df$q0104)
+cor.test(KHM_df$MSOL_3PM2, KHM_df$q0104)
+
+cor.test(KHM_df$MSOL_R1, KHM_df$total)
+cor.test(KHM_df$MSOL_R2, KHM_df$total)
+cor.test(KHM_df$MSOL_3PM1, KHM_df$total)
+cor.test(KHM_df$MSOL_3PM2, KHM_df$total)
+
+
+
+```
+```{r}
+#write.csv(KHM_df, file = "MSOL_HH_IND.csv")
+```
+
